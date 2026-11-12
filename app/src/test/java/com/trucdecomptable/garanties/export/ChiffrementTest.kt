@@ -72,6 +72,46 @@ class ChiffrementTest {
     }
 
     @Test
+    fun `csvGaranties exporte une ligne par couverture`() {
+        val appareils = listOf(
+            com.trucdecomptable.garanties.data.Appareil(id = 1, nom = "Lave-linge"),
+        )
+        val garanties = listOf(
+            com.trucdecomptable.garanties.data.Garantie(
+                appareilId = 1, type = "Extension de garantie", organisme = "Darty",
+                fin = "2029-03-15",
+            ),
+            com.trucdecomptable.garanties.data.Garantie(
+                appareilId = 1, type = "Garantie constructeur", organisme = "Bosch", fin = "2028-03-15",
+            ),
+        )
+        val csv = ExportManager.csvGaranties(appareils, garanties)
+        val lignes = csv.trim().split("\r\n".toRegex())
+        assertEqualsExport(3, lignes.size)
+        assertTrueExport(lignes[1].startsWith("Lave-linge;"))
+        assertTrueExport(lignes[1].contains("Garantie constructeur"))
+        assertTrueExport(lignes[2].contains("Extension de garantie"))
+    }
+
+    @Test
+    fun `csvDocuments liste les justificatifs avec leur fichier interne`() {
+        val appareils = listOf(com.trucdecomptable.garanties.data.Appareil(id = 2, nom = "TV"))
+        val documents = listOf(
+            com.trucdecomptable.garanties.data.Document(
+                appareilId = 2, type = "Facture", nom = "Facture Boulanger", chemin = "abc.pdf",
+            ),
+        )
+        val csv = ExportManager.csvDocuments(appareils, documents)
+        assertTrueExport(csv.contains("Facture Boulanger"))
+        assertTrueExport(csv.contains("abc.pdf"))
+        assertTrueExport(csv.startsWith("\uFEFF"))
+    }
+
+    private fun assertTrueExport(valeur: Boolean) = org.junit.Assert.assertTrue(valeur)
+
+    private fun assertEqualsExport(attendu: Int, obtenu: Int) = org.junit.Assert.assertEquals(attendu, obtenu)
+
+    @Test
     fun `csv conserve une valeur simple`() {
         assertEqualsSimple("Lave-linge", ExportManager.echapper("Lave-linge"))
     }

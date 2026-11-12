@@ -3,7 +3,12 @@ package com.trucdecomptable.garanties.ui
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.app.Activity
 import androidx.activity.compose.BackHandler
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
@@ -36,6 +41,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -88,6 +94,8 @@ fun ApplicationGaranties(vm: GarantiesViewModel) {
     var uriSauvegarde by remember { mutableStateOf<Uri?>(null) }
     var texteBrut by remember { mutableStateOf<String?>(null) }
     var photoAppareilPour by remember { mutableStateOf<Long?>(null) }
+    var exportEnAttente by remember { mutableStateOf<File?>(null) }
+    var nomExport by remember { mutableStateOf("mes-garanties.zip") }
 
     // ------------------------------------------------------------ lanceurs
 
@@ -142,6 +150,24 @@ fun ApplicationGaranties(vm: GarantiesViewModel) {
             uriSauvegarde = uri
             dialogueRestauration = true
         }
+    }
+
+    // Enregistrement dans un fichier choisi par l'utilisateur : l'export ne
+    // dépend pas de la présence d'une application de partage sur le téléphone.
+    val enregistrerSous = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("*/*")) { uri ->
+        val fichier = exportEnAttente
+        exportEnAttente = null
+        if (uri != null && fichier != null) {
+            val ok = ExportManager.ecrireVers(contexte, fichier, uri)
+            vm.signaler(if (ok) "Fichier enregistré : ${fichier.name}" else "Enregistrement impossible.")
+        }
+    }
+
+    fun enregistrer(fichier: File?, nom: String) {
+        if (fichier == null) return
+        exportEnAttente = fichier
+        nomExport = nom
+        enregistrerSous.launch(nom)
     }
 
     val permissionNotifications = rememberLauncherForActivityResult(
@@ -346,19 +372,18 @@ fun ApplicationGaranties(vm: GarantiesViewModel) {
                                 onParametres = { vm.majParametres(it) },
                                 onDefinirCode = { vm.definirCode(it) },
                                 onExporterZip = {
-                                    vm.exporterZip()?.let { partagerFichier(contexte, it, "application/zip") }
+                                    vm.exporterZip()?.let { enregistrer(it, it.name) }
                                 },
                                 onExporterCsv = {
-                                    vm.exporterCsv()?.let { partagerFichier(contexte, it, "text/csv") }
+                                    vm.exporterCsv()?.let { enregistrer(it, it.name) }
                                 },
                                 onExporterPdf = {
-                                    vm.exporterPdf()?.let { partagerFichier(contexte, it, "application/pdf") }
+                                    vm.exporterPdf()?.let { enregistrer(it, it.name) }
                                 },
+                                onPartagerExport = { fichier, mime -> partagerFichier(contexte, fichier, mime) },
                                 onSauvegarder = { motDePasse ->
                                     vm.sauvegarder(motDePasse) { fichier ->
-                                        if (fichier != null) {
-                                            partagerFichier(contexte, fichier, "application/octet-stream")
-                                        }
+                                        if (fichier != null) enregistrer(fichier, fichier.name)
                                     }
                                 },
                                 onRestaurer = { importSauvegarde.launch(arrayOf("*/*")) },
@@ -408,9 +433,7 @@ fun ApplicationGaranties(vm: GarantiesViewModel) {
                             dialogueRestauration = false
                             if (uri != null) {
                                 vm.restaurer(uri, motDePasse) { ok ->
-                                    if (ok) {
-                                        vm.signaler("Sauvegarde restaurée. Relancez l'application pour voir les fiches.")
-                                    }
+                                    if (ok) redemarrer(contexte)
                                 }
                             }
                         }) { Text("Restaurer") }
@@ -433,6 +456,14 @@ fun ApplicationGaranties(vm: GarantiesViewModel) {
             }
         }
     }
+}
+
+/** Après une restauration, la base a changé : on repart d'une activité neuve. */
+fun redemarrer(contexte: Context) {
+    val intention = Intent(contexte, com.trucdecomptable.garanties.MainActivity::class.java)
+        .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
+    contexte.startActivity(intention)
+    (contexte as? Activity)?.finishAffinity()
 }
 
 // ------------------------------------------------------------------ partage
@@ -505,10 +536,49 @@ fun ouvrirDocument(contexte: Context, document: Document) {
 
 // ---------------------------------------------------------------- verrouillage
 
+/**
+ * Déverrouillage : biométrie quand le téléphone en propose une (l'empreinte ne
+ * quitte jamais le capteur, l'application ne reçoit qu'un « oui »), code sinon.
+ * Cinq essais ratés imposent une pause de 30 s avant de pouvoir réessayer.
+ */
 @Composable
 fun EcranVerrouillage(verifier: (String) -> Boolean, onDeblocage: () -> Unit) {
+    val contexte = LocalContext.current
     var code by remember { mutableStateOf("") }
     var erreur by remember { mutableStateOf(false) }
+    var essais by remember { mutableIntStateOf(com.trucdecomptable.garanties.securite.CoffreSecret.essaisRestants(contexte)) }
+    var pauseJusqua by remember { mutableLongStateOf(0L) }
+    val activite = contexte as? FragmentActivity
+    val biometrieDisponible = remember {
+        BiometricManager.from(contexte)
+            .canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK) ==
+            BiometricManager.BIOMETRIC_SUCCESS
+    }
+
+    fun lancerBiometrie() {
+        if (!biometrieDisponible || activite == null) return
+        val prompt = BiometricPrompt(
+            activite,
+            ContextCompat.getMainExecutor(contexte),
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    com.trucdecomptable.garanties.securite.CoffreSecret
+                        .reinitialiserEssais(contexte)
+                    onDeblocage()
+                }
+            },
+        )
+        prompt.authenticate(
+            BiometricPrompt.PromptInfo.Builder()
+                .setTitle("Mes Garanties")
+                .setSubtitle("Déverrouillez pour accéder à vos factures")
+                .setNegativeButtonText("Utiliser le code")
+                .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_WEAK)
+                .build(),
+        )
+    }
+
+    LaunchedEffect(Unit) { if (biometrieDisponible) lancerBiometrie() }
     Column(
         Modifier
             .fillMaxSize()
@@ -530,11 +600,36 @@ fun EcranVerrouillage(verifier: (String) -> Boolean, onDeblocage: () -> Unit) {
             modifier = Modifier.fillMaxWidth(0.7f),
             singleLine = true,
         )
-        if (erreur) Text("Code incorrect", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+        if (erreur) {
+            Text(
+                if (essais > 0) "Code incorrect · $essais essai(s) restant(s)"
+                else "Trop d'essais : patientez 30 secondes.",
+                color = MaterialTheme.colorScheme.error,
+                fontSize = 12.sp,
+            )
+        }
+        val bloque = pauseJusqua > System.currentTimeMillis()
         Button(
-            onClick = { if (verifier(code)) onDeblocage() else erreur = true },
+            onClick = {
+                if (System.currentTimeMillis() < pauseJusqua) return@Button
+                if (verifier(code)) {
+                    com.trucdecomptable.garanties.securite.CoffreSecret.reinitialiserEssais(contexte)
+                    onDeblocage()
+                } else {
+                    erreur = true
+                    essais = com.trucdecomptable.garanties.securite.CoffreSecret.echecEssai(contexte)
+                    if (essais == 0) {
+                        pauseJusqua = System.currentTimeMillis() + 30_000L
+                        com.trucdecomptable.garanties.securite.CoffreSecret.reinitialiserEssais(contexte)
+                    }
+                }
+            },
+            enabled = !bloque,
             modifier = Modifier.fillMaxWidth(0.7f),
         ) { Text("Déverrouiller") }
+        if (biometrieDisponible) {
+            TextButton(onClick = { lancerBiometrie() }) { Text("Utiliser l'empreinte") }
+        }
     }
 }
 

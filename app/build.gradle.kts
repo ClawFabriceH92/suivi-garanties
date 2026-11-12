@@ -60,8 +60,8 @@ android {
         applicationId = "com.trucdecomptable.garanties"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.0.1"
+        versionCode = 3
+        versionName = "1.1.0"
         resourceConfigurations += listOf("fr")
     }
 
@@ -118,6 +118,8 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
 
     // Coffre local : les factures ne sortent pas du téléphone
+    // Base chiffrée au repos (SQLCipher), clé protégée par le Keystore Android
+    implementation("net.zetetic:sqlcipher-android:4.6.1")
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
     ksp("androidx.room:room-compiler:2.6.1")
@@ -130,6 +132,9 @@ dependencies {
 
     // Rappels de garantie
     implementation("androidx.work:work-runtime-ktx:2.9.1")
+
+    // Déverrouillage biométrique quand le téléphone le propose (le code reste le repli)
+    implementation("androidx.biometric:biometric:1.1.0")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 

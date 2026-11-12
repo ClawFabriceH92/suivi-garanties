@@ -39,6 +39,13 @@ object Echeances {
 
     const val HORIZON_JOURS = 90
 
+    /** Une garantie expirée reste dans « À faire » ce nombre de jours, pas plus. */
+    const val RAPPEL_EXPIRE_JOURS = 30
+
+    /** L'échéance mérite-t-elle d'être affichée : à venir dans l'horizon, ou expirée récemment. */
+    fun dansLaFenetre(joursRestants: Int, horizon: Int = HORIZON_JOURS): Boolean =
+        joursRestants <= horizon && joursRestants >= -RAPPEL_EXPIRE_JOURS
+
     /** Rouge < 30 jours, orange < 90 jours, vert actif, gris expiré. */
     fun etat(joursRestants: Int?): EtatGarantie = when {
         joursRestants == null -> EtatGarantie.INCONNUE
@@ -91,7 +98,7 @@ object Echeances {
         val resultat = mutableListOf<Echeance>()
         for (appareil in visibles) {
             val jours = joursRestants(appareil.finGarantie, aujourdhui)
-            if (jours != null && jours <= horizon) {
+            if (jours != null && dansLaFenetre(jours, horizon)) {
                 resultat += Echeance(
                     appareilId = appareil.id,
                     appareilNom = appareil.nom,
@@ -104,7 +111,7 @@ object Echeances {
             }
             garanties.filter { it.appareilId == appareil.id }.forEach { garantie ->
                 val j = joursRestants(garantie.fin, aujourdhui) ?: return@forEach
-                if (j <= horizon) {
+                if (dansLaFenetre(j, horizon)) {
                     resultat += Echeance(
                         appareilId = appareil.id,
                         appareilNom = appareil.nom,

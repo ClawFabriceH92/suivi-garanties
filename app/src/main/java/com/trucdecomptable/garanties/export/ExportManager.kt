@@ -76,6 +76,52 @@ object ExportManager {
         return sb.toString()
     }
 
+    /** Une ligne par couverture : l'export d'un appareil ne doit pas perdre ses garanties secondaires. */
+    fun csvGaranties(appareils: List<Appareil>, garanties: List<Garantie>): String {
+        val sb = StringBuilder()
+        sb.append('\uFEFF')
+        sb.append(
+            listOf(
+                "Appareil", "TypeCouverture", "Organisme", "Reference", "Debut", "Fin",
+                "Contact", "Conditions", "Notes",
+            ).joinToString(SEPARATEUR.toString()),
+        )
+        sb.append("\r\n")
+        val noms = appareils.associate { it.id to it.nom }
+        garanties.sortedWith(compareBy({ noms[it.appareilId] ?: "" }, { it.fin })).forEach { g ->
+            sb.append(
+                listOf(
+                    noms[g.appareilId] ?: "",
+                    g.type, g.organisme, g.reference, g.debut, g.fin,
+                    g.contact, g.conditions, g.notes,
+                ).joinToString(SEPARATEUR.toString()) { echapper(it) },
+            )
+            sb.append("\r\n")
+        }
+        return sb.toString()
+    }
+
+    /** Une ligne par document : l'inventaire des justificatifs, avec son chemin dans le ZIP. */
+    fun csvDocuments(appareils: List<Appareil>, documents: List<Document>): String {
+        val sb = StringBuilder()
+        sb.append('\uFEFF')
+        sb.append(
+            listOf("Appareil", "TypeDocument", "Nom", "Fichier", "AjouteLe").joinToString(SEPARATEUR.toString()),
+        )
+        sb.append("\r\n")
+        val noms = appareils.associate { it.id to it.nom }
+        documents.forEach { d ->
+            sb.append(
+                listOf(
+                    noms[d.appareilId] ?: "", d.type, d.nom, d.chemin,
+                    Dates.horodatageCourt(d.ajouteLe),
+                ).joinToString(SEPARATEUR.toString()) { echapper(it) },
+            )
+            sb.append("\r\n")
+        }
+        return sb.toString()
+    }
+
     fun echapper(valeur: String): String {
         val propre = valeur.replace(Regex("[\\r\\n]+"), " ")
         return if (propre.contains(SEPARATEUR) || propre.contains('"')) {
@@ -171,14 +217,26 @@ object ExportManager {
                 zip.closeEntry()
             }
 
+            zip.putNextEntry(ZipEntry("garanties.csv"))
+            zip.write(csvGaranties(appareils, garanties).toByteArray(Charsets.UTF_8))
+            zip.closeEntry()
+
+            zip.putNextEntry(ZipEntry("documents.csv"))
+            zip.write(csvDocuments(appareils, documents).toByteArray(Charsets.UTF_8))
+            zip.closeEntry()
+
             val dejaEcrits = mutableSetOf<String>()
             for (document in documents) {
                 val appareil = appareils.firstOrNull { it.id == document.appareilId } ?: continue
-                val piece = Fichiers.fichier(context, document.chemin)
+                val piece = Fichiers.clair(context, document.chemin)
                 if (!piece.exists()) continue
+                // L'extension d'origine est conservée : sans elle, un PDF ou une
+                // photo extraits du ZIP ne s'ouvrent pas au double-clic.
+                val extension = document.chemin.substringAfterLast('.', "")
                 val nomInterne = "${appareil.categorie}/${appareil.marque.ifBlank { "Sans marque" }}/" +
                     "${Fichiers.nomSansAccent(appareil.nom)}/Documents/" +
-                    "${document.type.replace('/', '-')} - ${Fichiers.nomSansAccent(document.nom)}"
+                    "${document.type.replace('/', '-')} - ${Fichiers.nomSansAccent(document.nom)}" +
+                    if (extension.isBlank()) "" else ".$extension"
                 val cheminZip = unique(nomInterne, dejaEcrits)
                 zip.putNextEntry(ZipEntry(cheminZip))
                 piece.inputStream().use { it.copyTo(zip) }
@@ -320,10 +378,22 @@ object ExportManager {
                     fichier.inputStream().use { it.copyTo(zip) }
                     zip.closeEntry()
                 }
+            // La phrase secrète de la base voyage dans l'archive : sans elle, la
+            // base restaurée ne s'ouvrirait que sur le téléphone d'origine (la clé
+            // du Keystore ne se copie pas). L'archive entière est chiffrée par le
+            // mot de passe choisi par l'utilisateur.
+            zip.putNextEntry(ZipEntry("base/cle.txt"))
+            zip.write(java.util.Base64.getEncoder().encode(
+                com.trucdecomptable.garanties.securite.CoffreSecret.phraseBaseBrute(context),
+            ))
+            zip.closeEntry()
+
             val pieces = Fichiers.dossier(context)
             pieces.listFiles()?.forEach { piece ->
+                // Écrit en clair DANS l'archive chiffrée : les pièces doivent être
+                // ré-encryptées avec la clé du téléphone d'arrivée, pas du départ.
                 zip.putNextEntry(ZipEntry("pieces/${piece.name}"))
-                piece.inputStream().use { it.copyTo(zip) }
+                Fichiers.clair(context, piece.name).inputStream().use { it.copyTo(zip) }
                 zip.closeEntry()
             }
             zip.putNextEntry(ZipEntry("manifeste.txt"))
@@ -376,6 +446,11 @@ object ExportManager {
         val nouvelleBase = File(travail, "base/garanties.db")
         if (!nouvelleBase.exists()) throw IllegalStateException("sauvegarde sans base de données")
 
+        File(travail, "base/cle.txt").takeIf { it.exists() }?.let { fichierCle ->
+            val phrase = java.util.Base64.getDecoder().decode(fichierCle.readText().trim())
+            com.trucdecomptable.garanties.securite.CoffreSecret.remplacerPhraseBase(context, phrase)
+        }
+
         CoffreDb.fermer()
         val base = context.getDatabasePath("garanties.db")
         base.parentFile?.mkdirs()
@@ -386,9 +461,31 @@ object ExportManager {
 
         val pieces = Fichiers.dossier(context)
         pieces.listFiles()?.forEach { it.delete() }
-        File(travail, "pieces").listFiles()?.forEach { it.copyTo(File(pieces, it.name), overwrite = true) }
+        Fichiers.purgerCache(context)
+        File(travail, "pieces").listFiles()?.forEach { origine ->
+            // Ré-encryption avec la clé de CE téléphone.
+            origine.inputStream().use { entree ->
+                Fichiers.enregistrerChiffre(context, origine.name, entree)
+            }
+        }
         travail.deleteRecursively()
         Diag.record("restauration", "base et justificatifs remplacés")
+    }
+
+    /**
+     * Copie l'export vers l'emplacement choisi par l'utilisateur (Documents,
+     * Téléchargements…). C'est le chemin fiable : la feuille de partage ne sert
+     * que si une application accepte le fichier.
+     */
+    fun ecrireVers(context: Context, source: File, destination: Uri): Boolean = runCatching {
+        context.contentResolver.openOutputStream(destination, "wt")?.use { sortie ->
+            source.inputStream().use { it.copyTo(sortie) }
+        } ?: return false
+        Diag.record("export", "écrit vers $destination (${Fichiers.tailleLisible(source.length())})")
+        true
+    }.getOrElse {
+        Diag.record("export", "écriture impossible : ${it.message}")
+        false
     }
 
     // --------------------------------------------------------------- partage

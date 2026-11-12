@@ -99,11 +99,13 @@ fun EcranAjout(
         texteBrut = e.texteBrut
         if (nom.isBlank()) {
             val base = e.designation.ifBlank { e.marque }
-            nom = if (e.marque.isNotBlank() && !base.contains(e.marque, ignoreCase = true)) {
-                "$e.marque $base".trim()
-            } else {
-                base
-            }
+            nom = com.trucdecomptable.garanties.metier.Textes.joliNom(
+                if (e.marque.isNotBlank() && !base.contains(e.marque, ignoreCase = true)) {
+                    "$e.marque $base".trim()
+                } else {
+                    base
+                },
+            )
         }
         if (marque.isBlank()) marque = e.marque
         if (modele.isBlank()) modele = e.modele
@@ -199,6 +201,42 @@ fun EcranAjout(
                                     "· ${produit.designation} — ${produit.prixTTC?.let { String.format(java.util.Locale.FRANCE, "%.2f €", it) }.orEmpty()}",
                                     fontSize = 12.sp,
                                 )
+                            }
+                        }
+                        if (extraction.produits.size > 1) {
+                            TextButton(onClick = {
+                                val base = construire(
+                                    initial = initial,
+                                    nom = nom,
+                                    categorie = categorie,
+                                    marque = marque,
+                                    modele = modele,
+                                    numeroSerie = numeroSerie,
+                                    codeBarres = codeBarres,
+                                    dateAchat = dateAchat,
+                                    prix = prix,
+                                    vendeur = vendeur,
+                                    numeroFacture = numeroFacture,
+                                    debutGarantie = debutGarantie,
+                                    finGarantie = finGarantie,
+                                    dureeMois = dureeMois,
+                                    emplacement = emplacement,
+                                    proprietaire = proprietaire,
+                                    statut = statut,
+                                    notes = notes,
+                                )
+                                val fiches = extraction.produits.mapIndexed { index, produit ->
+                                    base.copy(
+                                        id = 0,
+                                        nom = com.trucdecomptable.garanties.metier.Textes.joliNom(produit.designation)
+                                            .ifBlank { "${base.nom} ${index + 1}" },
+                                        prixAchat = produit.prixTTC ?: base.prixAchat,
+                                        numeroSerie = "",
+                                    )
+                                }
+                                onEnregistrer(fiches)
+                            }) {
+                                Text("Créer une fiche par article (${extraction.produits.size})")
                             }
                         }
                         if (texteBrut.isNotBlank()) {

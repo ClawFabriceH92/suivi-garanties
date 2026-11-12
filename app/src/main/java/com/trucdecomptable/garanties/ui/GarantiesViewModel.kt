@@ -41,6 +41,12 @@ class GarantiesViewModel(application: Application) : AndroidViewModel(applicatio
     private val db = CoffreDb.obtenir(application)
     private val dao = db.dao()
 
+    init {
+        // Une seule fois par démarrage : les justificatifs importés par une version
+        // antérieure passent au chiffrement au repos.
+        viewModelScope.launch(Dispatchers.IO) { Fichiers.chiffrerExistants(getApplication()) }
+    }
+
     val appareils: StateFlow<List<Appareil>> = dao.observerTous()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -203,6 +209,12 @@ class GarantiesViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun enregistrerPhoto(appareilId: Long, nomFichier: String) {
         viewModelScope.launch {
+            // La photo choisie devient la photo principale affichée sur la fiche
+            // et dans la liste ; elle reste aussi un document de l'appareil.
+            dao.appareil(appareilId)?.let { existant ->
+                dao.modifier(existant.copy(photo = nomFichier, modifieLe = System.currentTimeMillis()))
+            }
+            dao.journaliser(Evenement(appareilId = appareilId, texte = "Photo de l'appareil mise à jour"))
             dao.insererDocument(
                 Document(
                     appareilId = appareilId,
@@ -259,7 +271,12 @@ class GarantiesViewModel(application: Application) : AndroidViewModel(applicatio
                     _message.value = "Document illisible."
                     return@launch
                 }
-                val resultat = OcrFacture.lire(contexte, Fichiers.uriPartageFichier(contexte, Fichiers.fichier(contexte, interne)), Fichiers.mime(interne))
+                val lisible = Fichiers.clair(contexte, interne)
+                val resultat = OcrFacture.lire(
+                    contexte,
+                    Fichiers.uriPartageFichier(contexte, lisible),
+                    Fichiers.mime(interne),
+                )
                 if (resultat.texte.isBlank()) {
                     _message.value = "Aucun texte détecté : la photo est peut-être floue. Vous pouvez saisir la fiche à la main."
                     _factureImportee.value = interne
@@ -390,8 +407,14 @@ class GarantiesViewModel(application: Application) : AndroidViewModel(applicatio
                 Diag.record("restauration", it)
                 _message.value = "Restauration impossible : ${it.message ?: "mot de passe incorrect"}"
             }.isSuccess
+            if (ok) DiagFreeJour()
             apres(ok)
         }
+    }
+
+    /** La restauration a remplacé la base : les flux doivent repartir de zéro. */
+    private fun DiagFreeJour() {
+        runCatching { CoffreDb.rouvrir(getApplication()) }
     }
 
     fun aujourdhui() = Dates.aujourdhui()

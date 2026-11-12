@@ -138,6 +138,12 @@ fun EcranFiche(
                 }
             }
 
+            if (appareil.photo.isNotBlank()) {
+                item {
+                    PhotoLocale(appareil.photo, taille = 190.dp, pleineLargeur = true)
+                }
+            }
+
             item {
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -185,7 +191,7 @@ fun EcranFiche(
                     )
                 }
             }
-            items(garanties, key = { it.id }) { garantie ->
+            items(garanties, key = { "g-${it.id}" }) { garantie ->
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                     Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         PastilleEtat(Echeances.etatDe(garantie.fin), taille = 10)
@@ -237,7 +243,12 @@ fun EcranFiche(
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = onPrendrePhoto) { Text("Photographier l'appareil") }
+                    TextButton(onClick = onPrendrePhoto) {
+                        Text(
+                            if (appareil.photo.isBlank()) "Photographier l'appareil"
+                            else "Changer la photo principale",
+                        )
+                    }
                 }
             }
             if (documents.isEmpty()) {
@@ -249,7 +260,7 @@ fun EcranFiche(
                     )
                 }
             }
-            items(documents, key = { it.id }) { document ->
+            items(documents, key = { "d-${it.id}" }) { document ->
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                     Row(
                         Modifier
@@ -291,7 +302,7 @@ fun EcranFiche(
             if (journal.isEmpty()) {
                 item { Text("Aucun événement.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
-            items(journal, key = { it.id }) { evenement ->
+            items(journal, key = { "j-${it.id}" }) { evenement ->
                 Column {
                     Text(Dates.horodatage(evenement.date), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(evenement.texte, fontSize = 13.sp)

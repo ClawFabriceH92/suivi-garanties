@@ -2,7 +2,6 @@ package com.trucdecomptable.garanties
 
 import android.content.Intent
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.core.view.WindowCompat
@@ -11,7 +10,7 @@ import com.trucdecomptable.garanties.ui.ApplicationGaranties
 import com.trucdecomptable.garanties.ui.GarantiesViewModel
 import com.trucdecomptable.garanties.util.Diag
 
-class MainActivity : ComponentActivity() {
+class MainActivity : androidx.fragment.app.FragmentActivity() {
 
     private val vm: GarantiesViewModel by viewModels()
 

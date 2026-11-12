@@ -59,6 +59,7 @@ fun EcranReglages(
     onExporterZip: () -> Unit,
     onExporterCsv: () -> Unit,
     onExporterPdf: () -> Unit,
+    onPartagerExport: (java.io.File, String) -> Unit,
     onSauvegarder: (String) -> Unit,
     onRestaurer: () -> Unit,
     onVerifierMaj: () -> Unit,
@@ -131,6 +132,12 @@ fun EcranReglages(
                 OutlinedButton(onClick = onExporterCsv) { Text("CSV") }
                 OutlinedButton(onClick = onExporterPdf) { Text("PDF") }
             }
+            Text(
+                "L'application propose d'enregistrer le fichier là où vous voulez " +
+                    "(Téléchargements, Drive, clé USB) : les exports restent lisibles sans elle.",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Button(onClick = { dialogueSauvegarde = true }, modifier = Modifier.fillMaxWidth()) {
                 Text("Sauvegarde chiffrée")
             }

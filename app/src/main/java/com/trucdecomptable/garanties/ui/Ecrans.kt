@@ -1,5 +1,6 @@
 package com.trucdecomptable.garanties.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -21,6 +22,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Photo
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ReportProblem
@@ -40,11 +43,15 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -57,8 +64,68 @@ import com.trucdecomptable.garanties.metier.Echeances
 import com.trucdecomptable.garanties.metier.EtatGarantie
 import com.trucdecomptable.garanties.metier.Synthese
 import com.trucdecomptable.garanties.util.Dates
+import com.trucdecomptable.garanties.util.Fichiers
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 // --------------------------------------------------------------- composables
+
+/**
+ * Photo de l'appareil, lue depuis le coffre chiffré : déchiffrée dans le cache
+ * puis décodée hors du fil principal (une photo de téléphone fait 3 à 8 Mo).
+ */
+@Composable
+fun PhotoLocale(nom: String, taille: androidx.compose.ui.unit.Dp, arrondi: Int = 8, pleineLargeur: Boolean = false) {
+    val contexte = LocalContext.current
+    val bitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(initialValue = null, nom) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                if (nom.isBlank()) return@runCatching null
+                val fichier = Fichiers.clair(contexte, nom)
+                if (!fichier.exists()) return@runCatching null
+                val bornes = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                android.graphics.BitmapFactory.decodeFile(fichier.absolutePath, bornes)
+                var facteur = 1
+                val cote = if (pleineLargeur) 900 else 320
+                while (bornes.outWidth / facteur > cote * 2) facteur *= 2
+                android.graphics.BitmapFactory.decodeFile(
+                    fichier.absolutePath,
+                    android.graphics.BitmapFactory.Options().apply { inSampleSize = facteur },
+                )?.asImageBitmap()
+            }.getOrNull()
+        }
+    }
+    val forme = androidx.compose.foundation.shape.RoundedCornerShape(arrondi.dp)
+    Box(
+        if (pleineLargeur) {
+            Modifier
+                .fillMaxWidth()
+                .height(taille)
+                .clip(forme)
+        } else {
+            Modifier
+                .size(taille)
+                .clip(forme)
+        }.background(MaterialTheme.colorScheme.surfaceVariant),
+        contentAlignment = Alignment.Center,
+    ) {
+        val image = bitmap
+        if (image != null) {
+            Image(
+                bitmap = image,
+                contentDescription = "Photo de l'appareil",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Icon(
+                Icons.Default.Photo,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
 
 @Composable
 fun PastilleEtat(etat: EtatGarantie, taille: Int = 12) {
@@ -119,8 +186,13 @@ fun CarteAppareil(
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            PastilleEtat(etat, taille = 14)
-            Spacer(Modifier.width(12.dp))
+            if (appareil.photo.isNotBlank()) {
+                PhotoLocale(appareil.photo, taille = 48.dp)
+                Spacer(Modifier.width(10.dp))
+            } else {
+                PastilleEtat(etat, taille = 14)
+                Spacer(Modifier.width(12.dp))
+            }
             Column(Modifier.weight(1f)) {
                 Text(
                     appareil.nom,
@@ -317,6 +389,17 @@ fun ListeAppareils(
     var recherche by remember { mutableStateOf("") }
     var filtre by remember { mutableStateOf(FiltreListe.TOUS) }
     var categorie by remember { mutableStateOf("") }
+    var annee by remember { mutableStateOf("") }
+    var emplacement by remember { mutableStateOf("") }
+    var proprietaire by remember { mutableStateOf("") }
+    var montantMin by remember { mutableStateOf("") }
+    var filtresAvances by remember { mutableStateOf(false) }
+
+    val annees = appareils.mapNotNull { it.dateAchat.take(4).toIntOrNull() }
+        .distinct().sortedDescending()
+    val emplacements = appareils.map { it.emplacement }.filter { it.isNotBlank() }.distinct().sorted()
+    val proprietaires = appareils.map { it.proprietaire }.filter { it.isNotBlank() }.distinct().sorted()
+    val seuil = montantMin.replace(',', '.').toDoubleOrNull()
 
     val maintenant = Dates.aujourdhui()
     val docsParAppareil = documents.groupingBy { it.appareilId }.eachCount()
@@ -332,6 +415,10 @@ fun ListeAppareils(
             ).any { it.lowercase().contains(texte) }
         }
         .filter { categorie.isBlank() || it.categorie == categorie }
+        .filter { annee.isBlank() || it.dateAchat.startsWith(annee) }
+        .filter { emplacement.isBlank() || it.emplacement == emplacement }
+        .filter { proprietaire.isBlank() || it.proprietaire == proprietaire }
+        .filter { seuil == null || (it.prixAchat ?: 0.0) >= seuil }
         .filter { appareil ->
             val fin = Echeances.finLaPlusLointaine(appareil, garanties)
             val jours = Echeances.joursRestants(fin, maintenant)
@@ -398,6 +485,74 @@ fun ListeAppareils(
                         label = { Text(nom, fontSize = 12.sp) },
                     )
                 }
+            }
+            Row(
+                Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                FilterChip(
+                    selected = filtresAvances || annee.isNotBlank() || emplacement.isNotBlank() ||
+                        proprietaire.isNotBlank() || montantMin.isNotBlank(),
+                    onClick = { filtresAvances = !filtresAvances },
+                    label = { Text("Plus de filtres", fontSize = 12.sp) },
+                    leadingIcon = { Icon(Icons.Default.Tune, contentDescription = null) },
+                )
+                if (annee.isNotBlank()) {
+                    FilterChip(selected = true, onClick = { annee = "" }, label = { Text(annee, fontSize = 12.sp) })
+                }
+                if (emplacement.isNotBlank()) {
+                    FilterChip(selected = true, onClick = { emplacement = "" }, label = { Text(emplacement, fontSize = 12.sp) })
+                }
+                if (proprietaire.isNotBlank()) {
+                    FilterChip(selected = true, onClick = { proprietaire = "" }, label = { Text(proprietaire, fontSize = 12.sp) })
+                }
+                if (montantMin.isNotBlank()) {
+                    FilterChip(selected = true, onClick = { montantMin = "" }, label = { Text("dès $montantMin €", fontSize = 12.sp) })
+                }
+            }
+            if (filtresAvances) {
+                if (annees.isNotEmpty()) {
+                    Row(
+                        Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        annees.forEach { valeur ->
+                            FilterChip(
+                                selected = annee == valeur.toString(),
+                                onClick = { annee = if (annee == valeur.toString()) "" else valeur.toString() },
+                                label = { Text(valeur.toString(), fontSize = 12.sp) },
+                            )
+                        }
+                    }
+                }
+                if (emplacements.isNotEmpty() || proprietaires.isNotEmpty()) {
+                    Row(
+                        Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        emplacements.forEach { valeur ->
+                            FilterChip(
+                                selected = emplacement == valeur,
+                                onClick = { emplacement = if (emplacement == valeur) "" else valeur },
+                                label = { Text(valeur, fontSize = 12.sp) },
+                            )
+                        }
+                        proprietaires.forEach { valeur ->
+                            FilterChip(
+                                selected = proprietaire == valeur,
+                                onClick = { proprietaire = if (proprietaire == valeur) "" else valeur },
+                                label = { Text(valeur, fontSize = 12.sp) },
+                            )
+                        }
+                    }
+                }
+                OutlinedTextField(
+                    value = montantMin,
+                    onValueChange = { montantMin = it.filter { c -> c.isDigit() || c == ',' || c == '.' } },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("Montant d'achat minimum (€)") },
+                )
             }
             if (filtres.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

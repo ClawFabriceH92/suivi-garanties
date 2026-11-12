@@ -13,6 +13,7 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import com.trucdecomptable.garanties.util.Diag
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
@@ -220,24 +221,106 @@ abstract class CoffreDb : RoomDatabase() {
     abstract fun dao(): CoffreDao
 
     companion object {
+        const val FICHIER = "garanties.db"
+
         @Volatile
         private var instance: CoffreDb? = null
 
+        /**
+         * Base chiffrée (SQLCipher) : le fichier .db est illisible sans la phrase
+         * secrète, elle-même protégée par le Keystore Android. Une installation
+         * antérieure non chiffrée est convertie une seule fois, sans perte.
+         */
         fun obtenir(context: Context): CoffreDb =
             instance ?: synchronized(this) {
-                instance ?: Room.databaseBuilder(
-                    context.applicationContext,
-                    CoffreDb::class.java,
-                    "garanties.db",
-                ).build().also { instance = it }
+                instance ?: construire(context.applicationContext).also { instance = it }
             }
+
+        private fun construire(context: Context): CoffreDb {
+            System.loadLibrary("sqlcipher")
+            val fichier = context.getDatabasePath(FICHIER)
+            val anciennes = if (estEnClair(fichier)) extraireEnClair(context) else null
+            if (anciennes != null) {
+                // Le fichier en clair est supprimé AVANT d'ouvrir la base chiffrée :
+                // SQLite ne peut pas ouvrir un fichier non chiffré avec une clé.
+                supprimerFichiers(fichier)
+            }
+            val chiffree = Room.databaseBuilder(context, CoffreDb::class.java, FICHIER)
+                .openHelperFactory(
+                    net.zetetic.database.sqlcipher.SupportOpenHelperFactory(
+                        com.trucdecomptable.garanties.securite.CoffreSecret.phraseBase(context),
+                    ),
+                )
+                .build()
+            if (anciennes != null) {
+                kotlinx.coroutines.runBlocking { reimporter(chiffree, anciennes) }
+                Diag.record(
+                    "base",
+                    "convertie en chiffré : ${anciennes.appareils.size} appareil(s), " +
+                        "${anciennes.documents.size} document(s) conservés",
+                )
+            }
+            return chiffree
+        }
+
+        private data class Contenu(
+            val appareils: List<Appareil>,
+            val documents: List<Document>,
+            val garanties: List<Garantie>,
+            val journal: List<Evenement>,
+        )
+
+        /** Un fichier SQLite non chiffré commence par « SQLite format 3 ». */
+        internal fun estEnClair(fichier: java.io.File): Boolean {
+            if (!fichier.exists() || fichier.length() < 16) return false
+            val entete = ByteArray(16)
+            runCatching { fichier.inputStream().use { it.read(entete) } }
+            return String(entete, Charsets.ISO_8859_1).startsWith("SQLite format 3")
+        }
+
+        private fun supprimerFichiers(fichier: java.io.File) {
+            java.io.File("${fichier.path}-wal").delete()
+            java.io.File("${fichier.path}-shm").delete()
+            fichier.delete()
+        }
+
+        private fun extraireEnClair(context: Context): Contenu? = runCatching {
+            val clair = Room.databaseBuilder(context, CoffreDb::class.java, FICHIER).build()
+            val contenu = kotlinx.coroutines.runBlocking {
+                Contenu(
+                    appareils = clair.dao().tousLesAppareils(),
+                    documents = clair.dao().tousLesDocuments(),
+                    garanties = clair.dao().toutesLesGaranties(),
+                    journal = clair.dao().toutLeJournal(),
+                )
+            }
+            clair.close()
+            contenu
+        }.getOrElse {
+            Diag.record("base", "conversion impossible : ${it.message}")
+            null
+        }
+
+        private suspend fun reimporter(db: CoffreDb, contenu: Contenu) {
+            val dao = db.dao()
+            contenu.appareils.forEach { dao.inserer(it) }
+            contenu.garanties.forEach { dao.insererGarantie(it) }
+            contenu.documents.forEach { dao.insererDocument(it) }
+            contenu.journal.forEach { dao.journaliser(it) }
+        }
 
         /** Nécessaire avant de remplacer le fichier de base lors d'une restauration. */
         fun fermer() {
             synchronized(this) {
-                instance?.close()
+                runCatching { instance?.close() }
                 instance = null
             }
+        }
+
+        /** Après une restauration : la nouvelle base doit être rouverte. */
+        fun rouvrir(context: Context): CoffreDb {
+            fermer()
+            return obtenir(context)
         }
     }
 }

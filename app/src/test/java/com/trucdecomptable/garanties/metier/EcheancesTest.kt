@@ -109,6 +109,29 @@ class EcheancesTest {
     }
 
     @Test
+    fun `une garantie expiree depuis plus de 30 jours sort de a faire`() {
+        val ancienne = appareil(id = 5, nom = "Vieux frigo", fin = "2024-01-01")
+        assertTrue(Echeances.echeances(listOf(ancienne), emptyList(), aujourdhui).isEmpty())
+    }
+
+    @Test
+    fun `une garantie expiree recemment reste dans a faire`() {
+        val recente = appareil(id = 6, nom = "Four", fin = "2026-11-01")
+        val liste = Echeances.echeances(listOf(recente), emptyList(), aujourdhui)
+        assertEquals(1, liste.size)
+        assertEquals(EtatGarantie.EXPIREE, liste.first().etat)
+    }
+
+    @Test
+    fun `la fenetre accepte 90 jours en avant et 30 jours en arriere`() {
+        assertTrue(Echeances.dansLaFenetre(90))
+        assertTrue(Echeances.dansLaFenetre(0))
+        assertTrue(Echeances.dansLaFenetre(-30))
+        assertTrue(!Echeances.dansLaFenetre(-31))
+        assertTrue(!Echeances.dansLaFenetre(91))
+    }
+
+    @Test
     fun `au dela de l horizon une echeance n est pas listee`() {
         val a = appareil(fin = "2028-01-01")
         assertTrue(Echeances.echeances(listOf(a), emptyList(), aujourdhui).isEmpty())
