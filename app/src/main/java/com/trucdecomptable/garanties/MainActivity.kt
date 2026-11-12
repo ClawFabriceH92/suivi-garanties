@@ -38,5 +38,19 @@ class MainActivity : ComponentActivity() {
             Diag.record("app", "ouverture demandée pour l'appareil #$appareilId")
             vm.ouvrirFiche(appareilId)
         }
+        traiterPartage(intent)
+    }
+
+    /**
+     * « Partager » depuis un mail, une galerie ou un site marchand : la facture
+     * reçue part directement dans l'analyse, comme une photo prise dans l'app.
+     */
+    @Suppress("DEPRECATION")
+    private fun traiterPartage(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_SEND) return
+        val uri = intent.getParcelableExtra<android.net.Uri>(Intent.EXTRA_STREAM) ?: return
+        Diag.record("app", "document partagé reçu : $uri")
+        vm.analyserFacture(uri)
+        intent.action = null
     }
 }

@@ -3,6 +3,7 @@ package com.trucdecomptable.garanties.ui
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
@@ -187,6 +188,25 @@ fun ApplicationGaranties(vm: GarantiesViewModel) {
 
     LaunchedEffect(ficheId) {
         ficheId?.let { vm.chargerJournal(it) }
+    }
+
+    // Une facture partagée depuis une autre application arrive par l'extraction :
+    // l'écran de validation doit s'ouvrir, même si l'app était fermée.
+    LaunchedEffect(extraction) {
+        if (extraction != null && !modeAjout) {
+            modeAjout = true
+            ficheId = null
+        }
+    }
+
+    // Sans cela, le bouton retour du téléphone quitterait l'application depuis
+    // une fiche ou un formulaire au lieu de revenir en arrière.
+    BackHandler(enabled = ficheId != null || modeAjout || edition != null) {
+        when {
+            edition != null -> edition = null
+            modeAjout -> { modeAjout = false; vm.viderExtraction() }
+            else -> ficheId = null
+        }
     }
 
     ThemeGaranties(sombreForce = parametres.themeSombre) {

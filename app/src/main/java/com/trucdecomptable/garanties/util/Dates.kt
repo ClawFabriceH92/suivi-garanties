@@ -35,15 +35,21 @@ object Dates {
 
     fun afficherLong(texte: String?): String = parse(texte)?.format(FR_LONG) ?: ""
 
-    /** Lit 12/03/2026, 12-03-2026, 2026-03-12, 12/03/26 (année à 2 chiffres : 20xx). */
+    /**
+     * Lit 12/03/2026, 12-03-2026, 2026-03-12, 12/03/26 (année à 2 chiffres : 20xx)
+     * et tolère l'espace que l'OCR insère dans les nombres (« 15/03/2 026 »).
+     */
     fun lireSouple(texte: String?): LocalDate? {
         parse(texte)?.let { return it }
         val t = texte?.trim().orEmpty()
         if (t.isBlank()) return null
-        val m = Regex("""(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{2,4})""").find(t) ?: return null
+        val m = Regex("""(\d{1,2})\s?[/.\-]\s?(\d{1,2})\s?[/.\-]\s?(\d(?:\s?\d){1,3})""").find(t)
+            ?: return null
         val (j, mo, a) = m.destructured
-        val annee = a.toInt().let { if (it < 100) 2000 + it else it }
-        return runCatching { LocalDate.of(annee, mo.toInt(), j.toInt()) }.getOrNull()
+        val annee = a.replace(" ", "").filter { it.isDigit() }.toIntOrNull() ?: return null
+        return runCatching {
+            LocalDate.of(if (annee < 100) 2000 + annee else annee, mo.toInt(), j.toInt())
+        }.getOrNull()
     }
 
     /**

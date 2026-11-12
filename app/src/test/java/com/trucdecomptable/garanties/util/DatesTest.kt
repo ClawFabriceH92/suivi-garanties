@@ -33,6 +33,16 @@ class DatesTest {
     }
 
     @Test
+    fun `lit une date dont l annee contient un espace OCR`() {
+        assertEquals(LocalDate.of(2026, 3, 15), Dates.lireSouple("Date: 15/03/2 026"))
+    }
+
+    @Test
+    fun `lit une date collee sans espace autour des separateurs`() {
+        assertEquals(LocalDate.of(2026, 3, 15), Dates.lireSouple("15 / 03 / 2026"))
+    }
+
+    @Test
     fun `refuse le vide et le bruit`() {
         assertNull(Dates.lireSouple(""))
         assertNull(Dates.lireSouple("total 129,90"))

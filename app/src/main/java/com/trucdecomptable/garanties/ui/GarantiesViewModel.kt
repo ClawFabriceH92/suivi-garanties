@@ -294,7 +294,12 @@ class GarantiesViewModel(application: Application) : AndroidViewModel(applicatio
             for (appareil in appareils) {
                 val id = dao.inserer(appareil.copy(creeLe = System.currentTimeMillis(), modifieLe = System.currentTimeMillis()))
                 ids += id
-                dao.journaliser(Evenement(appareilId = id, texte = "Fiche créée depuis une facture"))
+                dao.journaliser(
+                    Evenement(
+                        appareilId = id,
+                        texte = if (facture.isNullOrBlank()) "Fiche créée" else "Fiche créée depuis une facture",
+                    ),
+                )
                 if (!facture.isNullOrBlank()) {
                     dao.insererDocument(
                         Document(

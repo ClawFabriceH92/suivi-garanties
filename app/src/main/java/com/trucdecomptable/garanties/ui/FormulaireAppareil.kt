@@ -98,8 +98,12 @@ fun EcranAjout(
         val e = extraction ?: return@LaunchedEffect
         texteBrut = e.texteBrut
         if (nom.isBlank()) {
-            nom = listOf(e.marque, e.designation).filter { it.isNotBlank() }.joinToString(" ").trim()
-                .ifBlank { e.designation }
+            val base = e.designation.ifBlank { e.marque }
+            nom = if (e.marque.isNotBlank() && !base.contains(e.marque, ignoreCase = true)) {
+                "$e.marque $base".trim()
+            } else {
+                base
+            }
         }
         if (marque.isBlank()) marque = e.marque
         if (modele.isBlank()) modele = e.modele
