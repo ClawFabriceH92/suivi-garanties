@@ -20,7 +20,7 @@ BLEU_CASQUETTE = (0x2F / 255, 0x6F / 255, 0xB2 / 255)
 PEAU = (0xF6 / 255, 0xC8 / 255, 0x9F / 255)
 SALOPETTE = (0xF2 / 255, 0x99 / 255, 0x4A / 255)
 SALOPETTE_OMBRE = (0xD9 / 255, 0x80 / 255, 0x35 / 255)
-ACIER = (0xBC / 255, 0xC7 / 255, 0xD2 / 255)
+ACIER = (0xAE / 255, 0xBB / 255, 0xC8 / 255)
 ACIER_OMBRE = (0x7C / 255, 0x8B / 255, 0x99 / 255)
 TRAIT = (0x2B / 255, 0x35 / 255, 0x40 / 255)
 BLANC = (1, 1, 1)
@@ -53,44 +53,107 @@ def rectangle_arrondi(ctx, x, y, largeur, hauteur, rayon, couleur):
     ctx.fill()
 
 
-def cle_a_molette(ctx, x, y, angle, hauteur_manche=26.0, largeur_manche=6.4):
-    """Clé à molette : anneau en bas, manche, tête à mâchoire ouverte en haut."""
+def cle_a_molette(ctx, x, y, angle, longueur=46.0, largeur_manche=6.6):
+    """Clé à molette debout : mâchoire ouverte en haut, manche, anneau en bas.
+
+    Dessinée dans son propre repère (origine = centre de l'outil), puis posée
+    à côté du personnage : elle doit se lire comme un objet distinct, pas comme
+    un accessoire tenu à la main.
+    """
     ctx.save()
     ctx.translate(x, y)
     ctx.rotate(angle)
+    demi = longueur / 2
 
     # manche
     rectangle_arrondi(
-        ctx, -largeur_manche / 2, 0, largeur_manche, hauteur_manche, largeur_manche / 2, ACIER
+        ctx, -largeur_manche / 2, -demi + 14, largeur_manche, longueur - 24,
+        largeur_manche / 2, ACIER,
     )
     # reflet du manche
     rectangle_arrondi(
-        ctx, -largeur_manche / 2 + 1.1, 1.5, 1.6, hauteur_manche - 3, 0.8, BLANC
+        ctx, -largeur_manche / 2 + 1.2, -demi + 16, 1.7, longueur - 28, 0.85, BLANC,
     )
 
     # anneau du bas
-    disque(ctx, 0, hauteur_manche + 5.4, 7.2, ACIER)
-    disque_transparent(ctx, 0, hauteur_manche + 5.4, 3.1)
+    disque(ctx, 0, demi - 5.6, 7.0, ACIER)
+    disque_transparent(ctx, 0, demi - 5.6, 3.0)
 
-    # tête : disque plein puis mâchoire creusée
-    disque(ctx, 0, -4.2, 9.2, ACIER)
+    # tête : disque plein puis mâchoire ouverte (fente + gorge)
+    disque(ctx, 0, -demi + 8.4, 9.0, ACIER)
     ctx.save()
     ctx.set_operator(cairo.OPERATOR_CLEAR)
-    ctx.move_to(-9.5, -12.5)
-    ctx.line_to(-1.2, -6.0)
-    ctx.line_to(-1.2, 1.0)
-    ctx.line_to(-10.5, -3.0)
-    ctx.close_path()
+    # fente de la mâchoire, orientée à 45° vers le haut-droite
+    ctx.save()
+    ctx.translate(0, -demi + 8.4)
+    ctx.rotate(math.radians(38))
+    ctx.rectangle(-1.9, -12.5, 3.8, 11.0)
+    ctx.restore()
     ctx.fill()
     ctx.restore()
 
-    # molette crantée (le petit détail qui fait reconnaître l'outil)
+    # molette de réglage
     ctx.set_source_rgb(*ACIER_OMBRE)
-    ctx.set_line_width(1.5)
-    ctx.arc(3.4, -1.0, 3.0, -0.6, 2.4)
+    ctx.set_line_width(1.6)
+    ctx.arc(-3.6, -demi + 13.6, 2.6, -0.4, 2.6)
     ctx.stroke()
 
     ctx.restore()
+
+
+def bonhomme(ctx):
+    """Bonhomme de face : casquette, salopette, bras et jambes visibles."""
+    # ---- jambes
+    rectangle_arrondi(ctx, 33.6, 70.0, 5.0, 14.0, 2.4, SALOPETTE_OMBRE)
+    rectangle_arrondi(ctx, 43.0, 70.0, 5.0, 14.0, 2.4, SALOPETTE_OMBRE)
+    # chaussures
+    rectangle_arrondi(ctx, 32.4, 82.0, 7.2, 5.0, 2.4, TRAIT)
+    rectangle_arrondi(ctx, 41.8, 82.0, 7.2, 5.0, 2.4, TRAIT)
+
+    # ---- bras
+    ctx.set_source_rgb(*PEAU)
+    ctx.set_line_width(4.6)
+    for depart_x, arrivee_x in ((33.4, 30.2), (48.2, 51.4)):
+        ctx.move_to(depart_x, 55.5)
+        ctx.line_to(arrivee_x, 65.5)
+        ctx.stroke()
+
+    # ---- corps / salopette
+    rectangle_arrondi(ctx, 30.6, 50.5, 20.4, 21.5, 5.5, SALOPETTE)
+    # bretelles
+    rectangle_arrondi(ctx, 33.8, 46.0, 3.8, 8.0, 1.8, SALOPETTE_OMBRE)
+    rectangle_arrondi(ctx, 44.0, 46.0, 3.8, 8.0, 1.8, SALOPETTE_OMBRE)
+    # poche
+    rectangle_arrondi(ctx, 36.4, 59.5, 8.8, 6.4, 1.8, SALOPETTE_OMBRE)
+
+    # ---- tête
+    disque(ctx, 40.8, 36.0, 11.4, PEAU)
+    disque(ctx, 29.8, 37.2, 2.5, PEAU)
+    disque(ctx, 51.8, 37.2, 2.5, PEAU)
+
+    # ---- casquette
+    ctx.set_source_rgb(*BLEU_CASQUETTE)
+    ctx.new_path()
+    ctx.arc(40.8, 36.0, 11.8, math.pi * 1.02, math.pi * 1.98)
+    ctx.close_path()
+    ctx.fill()
+    rectangle_arrondi(ctx, 40.6, 22.4, 14.0, 3.9, 1.95, BLEU_CASQUETTE)
+    disque(ctx, 40.8, 23.6, 1.7, BLEU)
+
+    # ---- visage
+    disque(ctx, 36.6, 37.4, 1.65, TRAIT)
+    disque(ctx, 45.0, 37.4, 1.65, TRAIT)
+    disque(ctx, 37.1, 36.8, 0.6, BLANC)
+    disque(ctx, 45.5, 36.8, 0.6, BLANC)
+    ctx.set_source_rgb(*TRAIT)
+    ctx.set_line_width(1.7)
+    ctx.arc(40.8, 39.6, 3.8, 0.3 * math.pi, 0.7 * math.pi)
+    ctx.stroke()
+    ctx.set_source_rgba(0.93, 0.45, 0.40, 0.32)
+    ctx.arc(32.8, 41.4, 2.1, 0, 2 * math.pi)
+    ctx.fill()
+    ctx.arc(48.8, 41.4, 2.1, 0, 2 * math.pi)
+    ctx.fill()
 
 
 def dessiner():
@@ -100,59 +163,9 @@ def dessiner():
     ctx.set_line_join(cairo.LINE_JOIN_ROUND)
     ctx.set_line_cap(cairo.LINE_CAP_ROUND)
 
-    # ---- corps / salopette
-    rectangle_arrondi(ctx, 39.5, 62, 29, 24, 9, SALOPETTE)
-    # bretelles
-    rectangle_arrondi(ctx, 44.0, 57.5, 4.2, 10, 2.0, SALOPETTE_OMBRE)
-    rectangle_arrondi(ctx, 59.8, 57.5, 4.2, 10, 2.0, SALOPETTE_OMBRE)
-    # poche
-    rectangle_arrondi(ctx, 49.5, 70.5, 9, 7, 2.0, SALOPETTE_OMBRE)
-
-    # ---- bras droit levé (tient la clé)
-    ctx.set_source_rgb(*SALOPETTE)
-    ctx.set_line_width(7.5)
-    ctx.move_to(66.0, 66.0)
-    ctx.curve_to(71.5, 63.0, 74.0, 58.5, 74.5, 53.0)
-    ctx.stroke()
-
-    # ---- tête
-    disque(ctx, 54, 43.5, 14.2, PEAU)
-    # oreilles
-    disque(ctx, 39.4, 44.5, 2.9, PEAU)
-    disque(ctx, 68.6, 44.5, 2.9, PEAU)
-
-    # ---- casquette
-    ctx.set_source_rgb(*BLEU_CASQUETTE)
-    ctx.new_path()
-    ctx.arc(54, 43.5, 14.6, math.pi * 1.04, math.pi * 1.96)
-    ctx.close_path()
-    ctx.fill()
-    # visière
-    rectangle_arrondi(ctx, 53.0, 27.6, 17.5, 4.6, 2.3, BLEU_CASQUETTE)
-    # bouton du casque
-    disque(ctx, 54, 29.2, 2.0, BLEU)
-
-    # ---- visage
-    disque(ctx, 48.6, 45.0, 1.9, TRAIT)
-    disque(ctx, 59.4, 45.0, 1.9, TRAIT)
-    # reflet des yeux
-    disque(ctx, 49.2, 44.3, 0.7, BLANC)
-    disque(ctx, 60.0, 44.3, 0.7, BLANC)
-    # sourire
-    ctx.set_source_rgb(*TRAIT)
-    ctx.set_line_width(1.9)
-    ctx.arc(54, 47.4, 4.6, 0.35 * math.pi, 0.65 * math.pi)
-    ctx.stroke()
-    # joues
-    ctx.set_source_rgba(0.93, 0.45, 0.40, 0.35)
-    ctx.arc(44.6, 49.6, 2.4, 0, 2 * math.pi)
-    ctx.fill()
-    ctx.arc(63.4, 49.6, 2.4, 0, 2 * math.pi)
-    ctx.fill()
-
-    # ---- main qui tient l'outil
-    cle_a_molette(ctx, 74.8, 52.0, math.radians(-22))
-    disque(ctx, 74.4, 51.6, 4.4, PEAU)
+    bonhomme(ctx)
+    # La clé est nettement à droite, sans contact avec le personnage.
+    cle_a_molette(ctx, 70.5, 52.0, math.radians(-7))
 
     return surface
 
